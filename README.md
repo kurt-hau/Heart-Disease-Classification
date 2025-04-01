@@ -1,5 +1,5 @@
 # Heart-Disease-Classification
-Factor Analysis, LASSO Regression, Full Technical Report
+Using R to run Factor Analysis, LASSO Regression, Full Technical Report
 
 This project utilized techniques of Factor Analysis and LASSO Regression in R in order to predict classification of a Heart disease diagnosis. There were three main routes of analysis:
 1. Create a LASSO logistic regression model for prediction
