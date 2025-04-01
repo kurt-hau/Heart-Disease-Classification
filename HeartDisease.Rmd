@@ -1,0 +1,577 @@
+---
+title: "HeartDiseaseNEW.RMD"
+output: html_document
+date: "2025-03-10"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Preliminary Imports + Libraries
+
+```{r}
+library(glmnet)  #For regression
+library(glm2) 	#Logistic Regression
+library(ggplot2)  # For better plotting services
+library(GGally)   # For a better scatterplot matrix ggpairs()
+library(leaps)    # For stepwise and all-subsets
+library(lmSubsets) 
+library(MASS)     # Many useful statistics functions, matrix operartions, Linear Discriminant Analysis (LDA)
+library(corrplot) # For a correlation plot
+library(car)      # For vif
+library(dplyr)
+library(readxl)
+library(factoextra)
+library(caret) 	#Random Forests
+library(ca)	#Correspondence Analysis
+library(ROCR)	#ROC Curve + AUC
+library(StatMatch)	#Gower Distance
+library(dbscan)	#Density Based Clustering
+library(cluster)		#Divergent (Backwards Hierarchical) Clustering
+library(stats)  #In base R, PCA
+library(dplyr)
+library(polycor)   # For polychoric & polyserial correlations
+library(cluster)   # For Gower's Distance (clustering)
+library(psych)     # For Factor Analysis
+library(FactoMineR) # For MCA (Multiple Correspondence Analysis)
+library(factoextra) # For PCA/MCA visualization
+library(ca)        # For Correspondence Analysis
+
+
+
+heartDis <- read.csv("~/Desktop/DSC 324/Final Project/Heart_disease_cleveland_new.csv")
+View(heartDis)
+str(heartDis)
+
+setwd("~/Desktop/DSC 324/Final Project")
+```
+
+# Pre-Processing
+
+### Missing Values (None)
+
+```{r}
+# Check for missing values in each column
+missing_values <- colSums(is.na(heartDis))
+
+# Convert to a data frame for better readability
+missing_values_df <- data.frame(Variable = names(missing_values), Missing_Count = missing_values)
+
+# Print summary of missing values
+print(missing_values_df)
+
+```
+
+### Plot variable distributions –\> outliers?
+
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(dplyr)
+
+# Identify Numeric Variables
+numeric_vars <- heartDis %>%
+  select(where(is.numeric))
+
+# Identify Categorical Variables
+categorical_vars <- heartDis %>%
+  select(where(is.factor))
+
+# Function to plot numeric variable distributions
+plot_numeric <- function(var) {
+  print(
+    ggplot(heartDis, aes_string(x = var)) +
+      geom_histogram(bins = 30, fill = "blue", alpha = 0.6, color = "black") +
+      ggtitle(paste("Distribution of", var)) +
+      theme_minimal()
+  )
+}
+
+# Function to plot categorical variable distributions
+plot_categorical <- function(var) {
+  print(
+    ggplot(heartDis, aes_string(x = var)) +
+      geom_bar(fill = "blue", alpha = 0.6, color = "black") +
+      ggtitle(paste("Distribution of", var)) +
+      theme_minimal() 
+  )
+}
+
+# Plot numeric variables
+lapply(names(numeric_vars), plot_numeric)
+
+# Plot categorical variables
+lapply(names(categorical_vars), plot_categorical)
+
+###################################################################################################################
+#Grid plotting, needs to be viewed by clicking plot symbol box in top right of RMD output window
+###################################################################################################################
+
+# Load necessary libraries
+library(ggplot2)
+library(dplyr)
+library(gridExtra)
+
+# Identify Numeric Variables
+numeric_vars <- heartDis %>%
+  select(where(is.numeric))
+
+# Identify Categorical Variables
+categorical_vars <- heartDis %>%
+  select(where(is.factor))
+
+# Function to plot numeric variable distributions
+plot_numeric <- function(var) {
+  ggplot(heartDis, aes_string(x = var)) +
+    geom_histogram(bins = 30, fill = "blue", alpha = 0.6, color = "black") +
+    ggtitle(paste("Distribution of", var)) +
+    theme_minimal()
+}
+
+# Function to plot categorical variable distributions
+plot_categorical <- function(var) {
+  ggplot(heartDis, aes_string(x = var)) +
+    geom_bar(fill = "blue", alpha = 0.6, color = "black") +
+    ggtitle(paste("Distribution of", var)) +
+    theme_minimal()
+}
+
+# Generate plots for numeric variables
+numeric_plots <- lapply(names(numeric_vars), plot_numeric)
+
+# Generate plots for categorical variables
+categorical_plots <- lapply(names(categorical_vars), plot_categorical)
+
+# Combine all plots
+all_plots <- c(numeric_plots, categorical_plots)
+
+# Display all plots in a grid layout
+grid.arrange(grobs = all_plots, ncol = 3)  # Adjust 'ncol' to change layout
+
+```
+
+### Detecting and Removing Outliers:
+
+-   oldpeak \>4 , chol \> 450, trestbps \>180
+
+-   8 observations removed
+
+```{r}
+#############################################################################################
+# Detect and Print Outliers Before Removal
+#############################################################################################
+
+# Load necessary library
+library(dplyr)
+
+# Detect outliers based on given conditions
+outliers_detected <- heartDis %>%
+  mutate(ID = row_number()) %>%  # Add row ID for reference
+  filter(oldpeak > 4 | trestbps > 180 | chol > 450)
+
+# Print detected outliers with row ID
+cat("\n📌 **Detected Outliers Before Removal** 📌\n")
+print(outliers_detected)
+
+# Count the number of detected outliers
+cat("\n✅ Number of detected outliers:", nrow(outliers_detected), "\n")
+
+#############################################################################################
+# Remove Specified Outliers
+#############################################################################################
+
+# Remove outliers based on criteria
+heartDis_cleaned <- heartDis %>%
+  filter(oldpeak <= 4, 
+         trestbps <= 180, 
+         chol <= 450)
+
+# Print summary of the dataset after removal
+cat("\n📌 **Summary After Outlier Removal** 📌\n")
+print(summary(heartDis_cleaned))
+
+# Count the number of rows removed
+rows_removed <- nrow(heartDis) - nrow(heartDis_cleaned)
+cat("\n✅ Number of rows removed:", rows_removed, "\n")
+
+str(heartDis)
+str(heartDis_cleaned)
+
+
+
+```
+
+### Define Variable Types
+
+```{r}
+# Convert Binary variables to factors
+binary_vars <- c("sex", "fbs", "exang")   # Binary (0/1)
+heartDis_cleaned[binary_vars] <- lapply(heartDis_cleaned[binary_vars], as.factor)
+
+# Convert Nominal variables to factors
+ordinal_vars <- c("cp", "restecg", "slope", "ca", "thal")   # Ordinal (ordered categories)
+heartDis_cleaned[ordinal_vars] <- lapply(heartDis_cleaned[ordinal_vars], as.factor)
+
+# Ensure Numeric variables are numeric
+numeric_vars <- c("age", "trestbps", "chol", "thalach", "oldpeak")  # Continuous numeric
+heartDis_cleaned[numeric_vars] <- lapply(heartDis_cleaned[numeric_vars], as.numeric)
+
+#Check structure to ensure proper transformations
+str(heartDis_cleaned)
+
+# Select predictor variables, excluding 'target'
+pred_vars <- heartDis_cleaned %>%
+  select(-target)
+
+```
+
+### Compute Mixed Correlation Matrix
+
+-   This will generate a correlation matrix that can be used for **Factor Analysis or PCA**.
+
+-   **(Polyserial + Polychoric + Pearson) =** cor_matrix
+
+```{r}
+# Compute hybrid correlation matrix for numeric, ordinal, and binary variables
+cor_matrix <- hetcor(heartDis_cleaned[, c(numeric_vars, ordinal_vars, binary_vars)])$correlations
+
+# Print mixed correlation matrix
+cat("\n **Mixed Correlation Matrix** \n")
+print(cor_matrix)
+
+# Plot the correlation matrix using corrplot
+corrplot(cor_matrix, method = "color", title = "Mixed Correlation", mar = c(0,0,1,0))
+
+```
+
+### Parallel Analysis (Number of Factors)
+
+Specify the Number of Components to get an initial idea of the interpretability of the components
+
+-   4-5 components is necessary
+
+```{r}
+#Parallel Analysis Scree Plots
+  #Parallel analysis does Factore analysis and PCA side by side
+Plel <- fa.parallel(cor_matrix)
+Plel
+
+```
+
+### Exploratory Factor Analysis (EFA) with Varimax
+
+```{r}
+# Run the Exploratory Factor Analysis
+# Here we use Maximum Likelihood extraction (fm = "ml") and Varimax rotation.
+# Adjust nfactors to the number of factors you want to extract (e.g., 3).
+efa_result <- fa(r = cor_matrix, nfactors = 5, fm = "ml", rotate = "Varimax")
+
+# Print the EFA results summary
+print(efa_result)
+
+# Optionally, display factor loadings with a cutoff (e.g., 0.3) for easier interpretation
+cat("\n EFA with all Variables \n")
+print(efa_result$loadings, oreder=T, cutoff = 0.5)
+```
+
+### KMO and Bartlett - Suitability of data for FA
+
+-   KMO and Bartlett
+
+-   Compare with CFA factanal() after
+
+<!-- -->
+
+-   Bartlett p-val \<2e-16 –\> We are suitable for FA
+
+-   Overall KMO: 0.702–\> We are suitable for FA
+
+    -   Could potentially drop 5/13 predictors:
+        -   **sex(0.424), chol(0.478), restecg(0.5), trestbps(0.517), and fbs(0.55)**
+
+```{r}
+# Perform Bartlett’s Test of Sphericity
+bartlett_test <- cortest.bartlett(cor_matrix, n = nrow(heartDis_cleaned))
+
+# Perform the KMO test
+kmo_result <- KMO(cor_matrix)
+
+# Print results with labels
+cat("\n **Bartlett’s Test of Sphericity** \n")
+cat("Chi-Square Value:", round(bartlett_test$chisq, 3), "\n")
+cat("Degrees of Freedom:", bartlett_test$df, "\n")
+cat("p-value:", format.pval(bartlett_test$p.value, digits = 3), "\n")
+
+cat("\n **Kaiser-Meyer-Olkin (KMO) Measure of Sampling Adequacy** \n")
+cat("Overall KMO:", round(kmo_result$MSA, 3), "\n")
+
+cat("\n **KMO Individual Measures** \n")
+print(round(kmo_result$MSAi, 3))
+
+#############################################################################################
+#Remove vars
+#############################################################################################
+# Subset pred_vars to remove 'sex','fbs','chol' and 'trestbps'
+  #All weak predictors and have KMO < 0.65
+# Define variables to remove
+vars_to_remove <- c("sex", "chol", "trestbps", "restecg", "fbs")
+
+# Combine your variable groups and remove the unwanted ones
+selected_vars <- setdiff(c(numeric_vars, ordinal_vars, binary_vars), vars_to_remove)
+
+cat("\n############## PREDS REMOVED #################\n")
+
+#############################################################################################
+#Re-Run with vars removed
+#############################################################################################
+# Compute the correlation matrix
+# Compute the hybrid correlation matrix for the selected variables
+cor_matrix5 <- hetcor(heartDis_cleaned[, selected_vars])$correlations
+
+# Perform Bartlett’s Test of Sphericity
+bartlett_test <- cortest.bartlett(cor_matrix5, n = nrow(heartDis_cleaned))
+
+# Perform the KMO test
+kmo_result <- KMO(cor_matrix5)
+
+# Print results with labels
+cat("\n **Bartlett’s Test of Sphericity** \n")
+cat("Chi-Square Value:", round(bartlett_test$chisq, 3), "\n")
+cat("Degrees of Freedom:", bartlett_test$df, "\n")
+cat("p-value:", format.pval(bartlett_test$p.value, digits = 3), "\n")
+
+cat("\n **Kaiser-Meyer-Olkin (KMO) Measure of Sampling Adequacy** \n")
+cat("Overall KMO:", round(kmo_result$MSA, 3), "\n")
+
+cat("\n **KMO Individual Measures** \n")
+print(round(kmo_result$MSAi, 3))
+
+```
+
+### 
+
+# Analysis 1: EFA fm = "minres" (Error)
+
+-   No Varimax, fm = "ml"
+
+<!-- -->
+
+-   5 factors, 0.5 cutoff, fm = "ml"
+
+```{r}
+#X factors
+  #Setting cor=T is essentially the same as using scale() befrehand because it
+  #uses the correlation matrix rather than the covariance matrix
+fitX <- fa(r= cor_matrix, nfactors= 5, fm = "minres", rotate ="varimax")
+
+cat("\n EFA by Minimum Residuals with all varoiables \n")
+print(fitX$loadings, order=T, cutoff= 0.5, sort= T)
+
+cat("/n #############################################################/n")
+
+```
+
+# Analysis 2: CFA fm = "ml"
+
+-   No Varimax, fm = "ml"
+
+<!-- -->
+
+-   5 factors, 0.5 cutoff, fm = "ml"
+
+```{r}
+#X factors
+  #Setting cor=T is essentially the same as using scale() befrehand because it
+  #uses the correlation matrix rather than the covariance matrix
+fitX <- fa(r= cor_matrix, nfactors= 5, fm = "ml", rotate ="none")
+
+cat("\n Analysis 2: CFA with all Variables, no rotation \n")
+print(fitX$loadings, order=T, cutoff= 0.5, sort= T)
+
+cat("/n #############################################################/n")
+
+```
+
+# Analysis 3: CFA fm = "ml", Varimax
+
+-   No Varimax, fm = "ml"
+
+<!-- -->
+
+-   5 factors, 0.5 cutoff, fm = "ml"
+
+```{r}
+#X factors
+  #Setting cor=T is essentially the same as using scale() befrehand because it
+  #uses the correlation matrix rather than the covariance matrix
+fitX <- fa(r= cor_matrix, nfactors= 5, fm = "ml", rotate ="varimax")
+
+cat("\n Analysis 3: Varimax CFA with all Variables \n")
+print(fitX$loadings, order=T, cutoff= 0.5, sort= T)
+
+cat("/n #############################################################/n")
+
+```
+
+# 
+
+# Analysis 4: CFA, fm= "ml", Varimax, vars KMO \< 0.6 dropped
+
+Re-Run PFA with **sex(0.424), chol(0.478), restecg(0.5), trestbps(0.517), and fbs(0.55)**
+
+-   4 factors are needed
+
+    -   PROMAX rotation yields best results
+
+5 factors:
+
+-   Variance increased from 0.612 to 0.766
+
+-   thalach is still the only negative correlation
+
+-   ca in two factors
+
+```{r}
+###############################################################
+#Use the Correlation Matrix without those 5 + re-remove target
+###############################################################
+# Subset pred_vars to remove 'sex','fbs','chol' and 'trestbps'
+  #All weak predictors and have KMO < 0.65
+# Define variables to remove
+vars_to_remove <- c("sex", "chol", "trestbps", "restecg", "fbs", "target")
+
+# Combine your variable groups and remove the unwanted ones
+  #Remove 5, have 8 left
+selected_vars <- setdiff(c(numeric_vars, ordinal_vars, binary_vars), vars_to_remove)
+
+# Compute the hybrid correlation matrix for the selected variables
+cor_matrix5 <- hetcor(heartDis_cleaned[, selected_vars])$correlations
+
+# Plot the correlation matrix using corrplot
+corrplot(cor_matrix5, method = "color", title = "Mixed Correlation", mar = c(0,0,1,0))
+###############################################################
+#Re-Run PFA to examine differences
+  #4-5 factors is ideal
+###############################################################
+
+#X factors
+fitX <- fa(r=cor_matrix5, 
+           nfactors=5, 
+           fm = "ml", 
+           rotate ="varimax",
+           n.obs = nrow(heartDis_cleaned), 
+           scores = "regression")
+
+cat("\n**Analysis 4: Varimax CFA with 5 preds removed ** \n")
+print(fitX$loadings, order=T, cutoff= 0.5, sort= T)
+
+
+```
+
+### psych CFA -–\> levaan CFA to Extract Factor Scores
+
+-   To obtain factor scores, you need to run the factor analysis on the raw data directly, can't obtain factor scores from categorical variable fa() tho
+
+-   Can't do factor scores for single variable factors
+
+```{r}
+# install.packages("lavaan")  # if not already installed
+library(lavaan)
+
+# Suppose these variables are ordinal (or binary, treated as ordinal)
+ordered_vars <- c("slope", "cp", "ca", "thal", "exang")
+
+library(lavaan)
+
+# Define the CFA model using only the two-indicator factors
+model_revised <- '
+  ML5 =~ oldpeak + slope
+  ML3 =~ cp + exang
+  ML2 =~ age + ca
+  
+  # Allow factors to correlate freely
+  ML5 ~~ ML3 + ML2
+  ML3 ~~ ML2
+'
+
+# List of ordinal/binary variables (if applicable)
+ordered_vars <- c("cp", "slope", "ca", "thal", "exang")  # Adjust based on your dataset
+
+# Fit the CFA model using WLSMV estimator (for ordinal data)
+fit_cfa_revised <- cfa(
+  model_revised,
+  data      = heartDis_cleaned,
+  ordered   = ordered_vars,  # Specify which variables are ordinal
+  estimator = "WLSMV"
+)
+
+# Check model summary
+summary(fit_cfa_revised, fit.measures = TRUE, standardized = TRUE)
+
+#############################################################################################
+# Extract factor scores for ML5, ML3, ML2
+factor_scores <- lavPredict(fit_cfa_revised)
+
+# Convert to a dataframe and attach the observed variables
+df_model <- cbind(factor_scores, 
+                  thalach = heartDis_cleaned$thalach, 
+                  thal = heartDis_cleaned$thal)
+
+# Check structure
+head(df_model)
+
+```
+
+### Run LASSO regression
+
+```{r}
+library(glmnet)
+
+# Convert predictors to a matrix for glmnet
+X <- as.matrix(df_model)  # Includes ML5, ML3, ML2, thalach, thal
+
+# Define the binary outcome variable (convert to numeric for glmnet)
+y <- as.numeric(as.character(heartDis_cleaned$target))  # Ensure 0/1 coding
+
+# Verify matrix structure
+dim(X)
+table(y)  # Check class balance
+
+# Fit LASSO logistic regression with cross-validation
+lasso_fit_bin <- cv.glmnet(X, y, alpha = 1, family = "binomial")
+
+# Plot the cross-validation error
+plot(lasso_fit_bin)
+
+# Extract the best lambda (penalty parameter)
+best_lambda_bin <- lasso_fit_bin$lambda.1se
+cat("Optimal lambda (binary outcome):", best_lambda_bin, "\n")
+
+# Get LASSO coefficients at the optimal lambda
+lasso_coefs_bin <- coef(lasso_fit_bin, s = "lambda.min")
+print(lasso_coefs_bin)
+```
+
+### Predict Probabilities:
+
+```{r}
+# Predict probabilities
+predicted_probs <- predict(lasso_fit_bin, newx = X, s = "lambda.1se", type = "response")
+
+# Convert to binary classifications (threshold = 0.5)
+predicted_classes <- ifelse(predicted_probs > 0.5, 1, 0)
+
+# Load required package
+library(caret)
+
+# Convert `y` (actual values) to factor to match `predicted_classes`
+y_factor <- factor(y, levels = c(0,1))
+predicted_factor <- factor(predicted_classes, levels = c(0,1))
+
+# Generate the confusion matrix
+conf_matrix <- confusionMatrix(predicted_factor, y_factor, positive = "1")
+
+# Print the confusion matrix
+print(conf_matrix)
+```
